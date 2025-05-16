@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Bot WhatsApp QR</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            background: #2a2a2a;
+            color: #ccc;
+        }
+
+        #qr {
+            font-size: 16px;
+            /*background: #fff;*/
+            padding: 15px;
+            border: 1px solid #ccc;
+            white-space: pre-wrap;
+            word-break: break-word;
+            margin-top: 10px;
+        }
+
+        #status {
+            margin-top: 15px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Escanea este código QR con tu celular</h2>
+    <pre id="qr">Cargando QR...</pre>
+    <p id="status">Esperando conexión...</p>
+
+    <script>
+        const socket = io();
+
+        socket.on('qr', (qr) => {
+            const qrImg = document.createElement('img');
+            qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qr)}`;
+            qrImg.alt = "Código QR de WhatsApp";
+            qrImg.style.border = "1px solid #000";
+            qrImg.style.marginTop = "10px";
+            qrImg.style.width = "250px";
+            qrImg.style.height = "250px";
+
+            const qrContainer = document.getElementById('qr');
+            qrContainer.innerHTML = ''; // Limpiar QR anterior si lo hay
+            qrContainer.appendChild(qrImg);
+            document.getElementById('status').textContent = '🔄 QR actualizado';
+        });
+
+        socket.on('ready', () => {
+            document.getElementById('qr').textContent = '';
+            document.getElementById('status').textContent = '✅ Bot listo';
+        });
+
+        socket.on('connected', (msg) => {
+            document.getElementById('status').textContent = msg;
+        });
+    </script>
+</body>
+
+</html>
