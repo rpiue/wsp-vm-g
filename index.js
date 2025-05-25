@@ -330,37 +330,38 @@ Si tienes algún problema, no dudes en decírmelo.
             });
 
 
-        } else {
-            const numero = message.from;
-            const texto = message.body.trim().toLowerCase();
-
-            const ignorarHasta = ignorarUsuarios.get(numero);
-            if (ignorarHasta && Date.now() < ignorarHasta) {
-                console.log(`⏱ Usuario ${numero} está ignorado hasta las ${new Date(ignorarHasta).toLocaleTimeString()}`);
-                return; // Ignora mensajes
-            }
-
-            if (!sesiones.has(numero)) {
-                sesiones.set(numero, {
-                    mensajes: [],
-                    temporizador: null
-                });
-            }
-
-            const sesion = sesiones.get(numero);
-            sesion.mensajes.push(texto);
-
-            if (sesion.temporizador) clearTimeout(sesion.temporizador);
-
-            sesion.temporizador = setTimeout(async () => {
-                const chat = await message.getChat();
-                await simularEscritura(chat);
-                const mensajeCompleto = sesion.mensajes.join(" ").replace(/\s+/g, " ");
-                await responderSegunMensaje(mensajeCompleto, message, numero);
-                sesiones.delete(numero); // Limpia sesión si no fue antes
-            }, 6000); // Espera 3 
-        }
-    });
+        } 
+        //else {
+        //    const numero = message.from;
+        //    const texto = message.body.trim().toLowerCase();
+//
+        //    const ignorarHasta = ignorarUsuarios.get(numero);
+        //    if (ignorarHasta && Date.now() < ignorarHasta) {
+        //        console.log(`⏱ Usuario ${numero} está ignorado hasta las ${new Date(ignorarHasta).toLocaleTimeString()}`);
+        //        return; // Ignora mensajes
+        //    }
+//
+        //    if (!sesiones.has(numero)) {
+        //        sesiones.set(numero, {
+        //            mensajes: [],
+        //            temporizador: null
+        //        });
+        //    }
+//
+        //    const sesion = sesiones.get(numero);
+        //    sesion.mensajes.push(texto);
+//
+        //    if (sesion.temporizador) clearTimeout(sesion.temporizador);
+//
+        //    sesion.temporizador = setTimeout(async () => {
+        //        const chat = await message.getChat();
+        //        await simularEscritura(chat);
+        //        const mensajeCompleto = sesion.mensajes.join(" ").replace(/\s+/g, " ");
+        //        await responderSegunMensaje(mensajeCompleto, message, numero);
+        //        sesiones.delete(numero); // Limpia sesión si no fue antes
+        //    }, 6000); // Espera 3 
+        //}
+    });//
 
 
     async function responderSegunMensaje(texto, message, numero) {
