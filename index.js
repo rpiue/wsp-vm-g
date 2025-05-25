@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const { generarLinkPago, ACCESS_TOKEN } = require('./pago');
 const { acortarLink } = require('./acortador');
 
@@ -24,11 +24,11 @@ let isAuthenticated = false;
 
 const respuestasEnviadas = new Map();
 const planUser = new Map();
-
+const imagenVerificacionURL = 'https://firebasestorage.googleapis.com/v0/b/apppagos-1ec3f.appspot.com/o/Música(17).png?alt=media&token=23bf4377-ef54-4198-8c70-b8b29c68d05b';
 
 app.use(express.json());
 app.use(express.static('public'));
-  
+
 
 app.post('/webhook', async (req, res) => {
     const { type, data } = req.body;
@@ -60,7 +60,7 @@ app.post('/webhook', async (req, res) => {
                         plan: userData.plan
                     });
 
-                    //console.log("📤 POST a /confirmar enviado");
+                    //console.log(`📤 POST a /confirmar enviado para ${emailPagador}`);
                 } else {
                     //console.log(`⚠️ No se encontró la información para ${emailPagador}`);
                 }
@@ -90,7 +90,8 @@ function calcularFechaVencimiento() {
         day: 'numeric'
     });
 }
-
+const sesiones = new Map(); // Guardamos mensajes por número
+const ignorarUsuarios = new Map(); // número => timestamp hasta el que se ignora
 
 function iniciarCliente() {
     const client = new Client({
@@ -183,7 +184,32 @@ function iniciarCliente() {
 
 
     client.on('message', async message => {
+
         if (!message.from.endsWith('@c.us')) return;
+        const chat = await message.getChat();
+
+        if (message.hasMedia && message.type === 'ptt') {
+            const respuestaPendiente = respuestasEnviadas.get(message.from);
+
+            if (respuestaPendiente) {
+                await simularEscritura(chat);
+
+                await client.sendMessage(message.from, "✅ Audio recibido. ")
+                // Enviar imagen
+                const media = await MessageMedia.fromUrl(imagenVerificacionURL, { unsafeMime: true });
+                //await client.sendMessage(message.from, media, { caption: "Realiza el pago aqui y enviame la captura" });
+                setTimeout(function () {
+                 simularEscritura(chat);
+
+                    return client.sendMessage(message.from, media, { caption: "Realiza el pago aqui y enviame la captura" });
+                }, 3000);
+
+
+                // Puedes limpiar el registro si quieres que solo lo haga una vez
+                respuestasEnviadas.delete(message.from);
+            }
+        }
+
         const planRegex = /Plan (Basico|Medium|Premium) - (Yape|BCP) Fake/i;
 
 
@@ -210,7 +236,7 @@ function iniciarCliente() {
             const email = emailLine ? emailLine.split(":")[1].trim() : null;
 
             const exists = findEmailInCache(email);
-            
+
             let planNombre = '';
             let monto = '';
 
@@ -228,7 +254,7 @@ function iniciarCliente() {
                 return;
             }
 
-            
+
             const userData = respuestasEnviadas.get(message.from);
 
             if (userData && userData.email === email && userData.plan === planNombre && userData.app === appSolicitud) {
@@ -240,7 +266,8 @@ function iniciarCliente() {
             }
 
             if (!exists) {
-                client.sendMessage(message.from, 'Envianos un audio para verificar.')
+                await simularEscritura(chat);
+                await client.sendMessage(message.from, 'Envianos un audio para verificar.')
                 respuestasEnviadas.set(message.from, {
                     app: appSolicitud,
                     email,
@@ -260,7 +287,7 @@ function iniciarCliente() {
             //const paymentLink = await acortarLink('https://www.google.com', {title: 'Codex Apps (Pagos)',
             //    description: 'Activa tu plan mensual ahora',
             //    image: 'https://img.freepik.com/foto-gratis/factura-telefono-3d-concepto-seguridad-pago-linea_107791-16722.jpg?semt=ais_hybrid&w=740'});
-    //
+            //
             //
             const msg1 = `Hola *${name}*, para activar tu *Plan ${planNombre}*, realiza el pago aquí:\n🔗 ${paymentLink}`;
             const msg2 = `A continuación, te dejo los pasos para realizar el pago:
@@ -281,6 +308,8 @@ __________________________
 
 Si tienes algún problema, no dudes en decírmelo.
         `;
+            await simularEscritura(chat);
+
             await message.reply(msg1);
             setTimeout(() => client.sendMessage(message.from, msg2), 3000);
 
@@ -301,8 +330,104 @@ Si tienes algún problema, no dudes en decírmelo.
             });
 
 
+        } else {
+            const numero = message.from;
+            const texto = message.body.trim().toLowerCase();
+
+            const ignorarHasta = ignorarUsuarios.get(numero);
+            if (ignorarHasta && Date.now() < ignorarHasta) {
+                console.log(`⏱ Usuario ${numero} está ignorado hasta las ${new Date(ignorarHasta).toLocaleTimeString()}`);
+                return; // Ignora mensajes
+            }
+
+            if (!sesiones.has(numero)) {
+                sesiones.set(numero, {
+                    mensajes: [],
+                    temporizador: null
+                });
+            }
+
+            const sesion = sesiones.get(numero);
+            sesion.mensajes.push(texto);
+
+            if (sesion.temporizador) clearTimeout(sesion.temporizador);
+
+            sesion.temporizador = setTimeout(async () => {
+                const chat = await message.getChat();
+                await simularEscritura(chat);
+                const mensajeCompleto = sesion.mensajes.join(" ").replace(/\s+/g, " ");
+                await responderSegunMensaje(mensajeCompleto, message, numero);
+                sesiones.delete(numero); // Limpia sesión si no fue antes
+            }, 6000); // Espera 3 
         }
     });
+
+
+    async function responderSegunMensaje(texto, message, numero) {
+        // Detectar petición de app
+        if (/(quiero|dame|pásame|pasa|mándame|mandame|envíame|enviame|necesito|me puedes dar|tienes|podrías darme|puedes darme).*(app|aplicación|apk|descarga|link|enlace)/.test(texto)) {
+            return client.sendMessage(numero,'📥 Aquí tienes el link para descargar la app: https://tulink.app');
+        }
+    
+        if (/(cuánto|duración|vale|vigencia).*(plan|suscripción|tiempo)/.test(texto)) {
+            return client.sendMessage(numero,'📆 El plan dura 1 mes desde que se activa.');
+        }
+    
+        if (/(marca.*agua|quitar.*marca|sacar.*marca|eliminar.*marca)/.test(texto)) {
+            return client.sendMessage(numero,'💧 Para quitar la marca de agua necesitas activar un plan de pago.');
+        }
+    
+        if (/(es gratis|vale 0|no cuesta|sin pagar|gratuita)/.test(texto)) {
+            return client.sendMessage(numero,'💳 No, la app requiere un pago para acceder.');
+        }
+    
+        if (/^(ok|gracias|listo|ya está|okey|oki|vale|chévere|gracias por todo|todo bien|perfecto|ok)[.! ]*$/i.test(texto)) {
+            return client.sendMessage(numero,'✅ Listo, cualquier cosa estoy aquí 💬');
+        }
+    
+        if (/^(1|2|3|4|5)$/.test(texto)) {
+            return manejarComando(message, texto, numero);
+        }
+    
+        // 🔥 MENÚ DE OPCIONES → limpiar sesión y cronómetro
+        if (sesiones.has(numero)) {
+            const sesion = sesiones.get(numero);
+            if (sesion.temporizador) clearTimeout(sesion.temporizador);
+            sesiones.delete(numero);
+        }
+    
+        return client.sendMessage(numero,
+    `❓ No entendí tu mensaje. Puedes elegir una opción:
+    1️⃣ Descargar la app
+    2️⃣ ¿Cuánto dura el plan?
+    3️⃣ ¿Cómo quitar la marca de agua?
+    4️⃣ ¿Es gratis la app?
+    5️⃣ Hablar con un asesor`
+        );
+    }1
+
+    async function manejarComando(message, opcion, numero) {
+        switch (opcion) {
+            case '1':
+                return message.reply('📥 Aquí tienes el link para descargar la app: https://tulink.app');
+            case '2':
+                return message.reply('📆 La suscripción dura 1 mes desde el momento de activación.');
+            case '3':
+                return message.reply('💧 Para quitar la marca de agua, necesitas activar un plan de pago.');
+            case '4':
+                return message.reply('💳 No, la app requiere un pago para tener acceso completo.');
+            case '5':
+                ignorarUsuarios.set(numero, Date.now() + 60 * 60 * 1000);
+                return message.reply('🧑‍💼 Un asesor se pondrá en contacto contigo pronto.');
+            default:
+                return message.reply('❌ Opción inválida. Elige un número del 1 al 5.');
+        }
+    }
+
+    async function simularEscritura(chat) {
+        chat.sendStateTyping();
+        await new Promise(r => setTimeout(r, 5200));
+    }
 
     client.on('disconnected', reason => {
         console.log('🔁 Cliente desconectado:', reason);
